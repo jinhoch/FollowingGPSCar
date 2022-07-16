@@ -25,7 +25,8 @@ double target_angle;	//자동차가 바라봐야할 목표의 각도
 
 int diffAngle;
 
-CONTROLLER_SIGNAL rotate=STOP;
+//CONTROLLER_SIGNAL rotate=STOP;
+CONTROLLER_SIGNAL moveSignal;
 uint8_t rotate_flag=0;
 
 extern GPS_t GPS;
@@ -34,26 +35,26 @@ _DestinationGPS waypointBefore;
 
 _Quadrant quadrant;
 
-CONTROLLER_SIGNAL chkCWCCW(float target_angle, float car_angle) {
-	if (car_angle < 180) {
-		double distance_angle = target_angle - car_angle;
-		if (distance_angle > 0 && distance_angle < 180) {
-			return CW;
-		}
-		else {
-			return CCW;
-		}
-	}
-	else {
-		double distance_angle = (target_angle + 360) - car_angle;
-		if (distance_angle < 180 || distance_angle >(car_angle + 360)) {
-			return CW;
-		}
-		else {
-			return CCW;
-		}
-	}
-}
+//CONTROLLER_SIGNAL chkCWCCW(float target_angle, float car_angle) {
+//	if (car_angle < 180) {
+//		double distance_angle = target_angle - car_angle;
+//		if (distance_angle > 0 && distance_angle < 180) {
+//			return CW;
+//		}
+//		else {
+//			return CCW;
+//		}
+//	}
+//	else {
+//		double distance_angle = (target_angle + 360) - car_angle;
+//		if (distance_angle < 180 || distance_angle >(car_angle + 360)) {
+//			return CW;
+//		}
+//		else {
+//			return CCW;
+//		}
+//	}
+//}
 
 void SelfDriving(){
 
@@ -99,38 +100,25 @@ void SelfDriving(){
 	  }
 
 
-	  diffAngle = abs((int)headingDegrees - (int)target_angle);
+	  diffAngle = ((int)target_angle - (int)headingDegrees + 360) % 360;
 
-	  if ((diffAngle > 10 && diffAngle < 350) && rotate_flag==0) {
-		  rotate=chkCWCCW((float)target_angle, headingDegrees);
-		  rotate_flag=1;
-		  waypointBefore.latitude=waypointGPS.latitude;
-		  waypointBefore.longitude=waypointGPS.longitude ;
+	  if(distance_c < 50){
+		  moveSignal = STOP;
+
+	  }else {
+		  if ((diffAngle >= 345) || (diffAngle < 15)){
+			  moveSignal = FORWARD;
+
+		  }else {
+
+			  if ((diffAngle >= 180) && (diffAngle < 345)){
+				  moveSignal = CCW;
+			  }else if ((diffAngle >= 15) && (diffAngle < 180)){
+				  moveSignal = CW;
+			  }
+		  }
 	  }
 
-	  if((waypointGPS.latitude!=waypointBefore.latitude && waypointGPS.longitude!=waypointBefore.longitude)){
-		  rotate=chkCWCCW((float)target_angle, headingDegrees);
-	  }
-
-
-	  if((diffAngle < 10 || diffAngle > 350)) {
-		  rotate_flag=0;
-	  }
-
-
-	  if(rotate_flag==1){
-		  Move(rotate);
-	  }
-
-
-
-	  if (distance_c > 50 && rotate_flag==0) {
-		  Move(FORWARD);
-	  }
-	  else if(distance_c < 50 && rotate_flag==0){
-		  Move(STOP);
-	  }
-
-
+	  Move(moveSignal);
 
 }
