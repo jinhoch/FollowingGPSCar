@@ -73,17 +73,42 @@ extern _DestinationGPS waypointGPS;
 extern int controlCMD;
 extern uint8_t Mode_Flag;
 
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 void calculateHeading(void);
+void delay_1 (uint16_t time);
+void delay_2 (uint16_t time);
+void delay_3 (uint16_t time);
+void HCSR04_Read_1 (void);;
+void HCSR04_Read_2 (void);
+void HCSR04_Read_3 (void);
+void Average_Difference();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+/*int __io_putchar(int ch) {
+	HAL_UART_Transmit(&huart3, &ch, 1, 1000);
+	return ch;
+}*/
+
+uint32_t IC_Val1[3] = {0};
+uint32_t IC_Val2[3] = {0};
+uint32_t Difference[3] = {0};
+uint8_t Is_First_Captured[3] = {0};  // is the first value captured ?
+uint16_t Distance[3]  = {0};
+
+
+
+uint32_t Difference_temp[3][10] = {0,};
+uint32_t total[3] = {0};
+uint32_t average[3] = {0};
+uint8_t index = 0;
+
 
 /* USER CODE END 0 */
 
@@ -121,6 +146,9 @@ int main(void)
   MX_UART7_Init();
   MX_I2C1_Init();
   MX_TIM2_Init();
+  MX_TIM3_Init();
+  MX_TIM1_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
 
@@ -132,6 +160,12 @@ int main(void)
   uint32_t start_tick = HAL_GetTick();
   uint32_t current_tick;
 
+  HAL_TIM_IC_Start_IT(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_1);
+  HAL_TIM_IC_Start_IT(&htim1, TIM_CHANNEL_1);
+
+  uint16_t emergency;
+  CONTROLLER_SIGNAL turn;
 
 
   /* USER CODE END 2 */
@@ -144,12 +178,39 @@ int main(void)
 	  current_tick = HAL_GetTick();
 	  if(current_tick - start_tick >= 70){
 		  calculateHeading();
+
+		  HCSR04_Read_1();
+		  HCSR04_Read_2();
+		  HCSR04_Read_3();
+		  Average_Difference();
+
 		  start_tick = current_tick;
 	  }
 
 
 	  if(Mode_Flag==CONTROL_MODE){
 		  Move(controlCMD);
+
+		  if(Distance[0] < 30){
+			  emergency=1;
+			  turn = Distance[1] > Distance[2]? RIGHT : LEFT;
+			  HAL_GPIO_WritePin(GPIOG, GPIO_PIN_0, 1);
+		  }
+
+		  if(emergency==1){
+			  if(Distance[0] < 30){
+				  Move(turn);
+				  HAL_Delay(100);
+
+			  }else {
+				  Move(turn);
+				  HAL_Delay(700);
+				  HAL_GPIO_WritePin(GPIOG, GPIO_PIN_0, 0);
+				  emergency=0;
+			  }
+		  }
+
+
 
 	  }else if(Mode_Flag==WAYPOINT_MODE){
 		  if(waypointGPS.latitude!=0 && waypointGPS.latitude!=0){
@@ -160,8 +221,6 @@ int main(void)
 
 
 	  }
-
-
 
 
     /* USER CODE END WHILE */
@@ -233,6 +292,195 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 	if(huart->Instance == UART7) Phone_UART_CallBack();
 
 }
+
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+{
+	if (htim->Instance == TIM3 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)  // if the interrupt source is channel1
+	{
+		if (Is_First_Captured[0]==0) // if the first value is not captured
+		{
+			IC_Val1[0] = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1); // read the first value
+			Is_First_Captured[0] = 1;  // set the first captured as true
+			// Now change the polarity to falling edge
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_FALLING);
+		}
+
+		else if (Is_First_Captured[0]==1)   // if the first is already captured
+		{
+			IC_Val2[0] = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);  // read second value
+			__HAL_TIM_SET_COUNTER(htim, 0);  // reset the counter
+
+			if (IC_Val2[0] > IC_Val1[0])
+			{
+				Difference[0] = IC_Val2[0]-IC_Val1[0];
+			}
+
+			else if (IC_Val1[0] > IC_Val2[0])
+			{
+				Difference[0] = (0xffff - IC_Val1[0]) + IC_Val2[0];
+			}
+
+			//Distance[0] = Difference[0] * .034/2;
+			Is_First_Captured[0] = 0; // set it back to false
+
+			// set polarity to rising edge
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
+			__HAL_TIM_DISABLE_IT(&htim3, TIM_IT_CC1);
+		}
+	}
+
+	else if (htim->Instance == TIM4 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)  // if the interrupt source is channel1
+	{
+		if (Is_First_Captured[1]==0) // if the first value is not captured
+		{
+			IC_Val1[1] = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1); // read the first value
+			Is_First_Captured[1] = 1;  // set the first captured as true
+			// Now change the polarity to falling edge
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_FALLING);
+		}
+
+		else if (Is_First_Captured[1]==1)   // if the first is already captured
+		{
+			IC_Val2[1] = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);  // read second value
+			__HAL_TIM_SET_COUNTER(htim, 0);  // reset the counter
+
+			if (IC_Val2[1] > IC_Val1[1])
+			{
+				Difference[1] = IC_Val2[1]-IC_Val1[1];
+			}
+
+			else if (IC_Val1[1] > IC_Val2[1])
+			{
+				Difference[1] = (0xffff - IC_Val1[1]) + IC_Val2[1];
+			}
+
+			//Distance[1] = Difference[1] * .034/2;
+			Is_First_Captured[1] = 0; // set it back to false
+
+			// set polarity to rising edge
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
+			__HAL_TIM_DISABLE_IT(&htim4, TIM_IT_CC1);
+		}
+	}
+
+	else if (htim->Instance == TIM1 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1)  // if the interrupt source is channel1
+	{
+		if (Is_First_Captured[2]==0) // if the first value is not captured
+		{
+			IC_Val1[2] = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1); // read the first value
+			Is_First_Captured[2] = 1;  // set the first captured as true
+			// Now change the polarity to falling edge
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_FALLING);
+		}
+
+		else if (Is_First_Captured[2]==1)   // if the first is already captured
+		{
+			IC_Val2[2] = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);  // read second value
+			__HAL_TIM_SET_COUNTER(htim, 0);  // reset the counter
+
+			if (IC_Val2[2] > IC_Val1[2])
+			{
+				Difference[2] = IC_Val2[2]-IC_Val1[2];
+			}
+
+			else if (IC_Val1[2] > IC_Val2[2])
+			{
+				Difference[2] = (0xffff - IC_Val1[2]) + IC_Val2[2];
+			}
+
+			//Distance[2] = Difference[2] * .034/2;
+			Is_First_Captured[2] = 0; // set it back to false
+
+			// set polarity to rising edge
+			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1, TIM_INPUTCHANNELPOLARITY_RISING);
+			__HAL_TIM_DISABLE_IT(&htim1, TIM_IT_CC1);
+		}
+	}
+}
+
+
+
+void HCSR04_Read_1 (void)
+{
+	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET);  // pull the TRIG pin HIGH
+	delay_1(10);  // wait for 10 us
+	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET);  // pull the TRIG pin low
+
+	__HAL_TIM_ENABLE_IT(&htim3, TIM_IT_CC1);
+}
+
+void HCSR04_Read_2 (void)
+{
+	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET);  // pull the TRIG pin HIGH
+	delay_2(10);  // wait for 10 us
+	HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_RESET);  // pull the TRIG pin low
+
+	__HAL_TIM_ENABLE_IT(&htim4, TIM_IT_CC1);
+}
+
+void HCSR04_Read_3 (void)
+{
+	HAL_GPIO_WritePin(GPIOF, GPIO_PIN_12, GPIO_PIN_SET);  // pull the TRIG pin HIGH
+	delay_3(10);  // wait for 10 us
+	HAL_GPIO_WritePin(GPIOF, GPIO_PIN_12, GPIO_PIN_RESET);  // pull the TRIG pin low
+
+	__HAL_TIM_ENABLE_IT(&htim1, TIM_IT_CC1);
+}
+
+
+
+void delay_1 (uint16_t time)
+{
+	__HAL_TIM_SET_COUNTER(&htim3, 0);
+	while (__HAL_TIM_GET_COUNTER (&htim3) < time);
+}
+
+void delay_2 (uint16_t time)
+{
+	__HAL_TIM_SET_COUNTER(&htim4, 0);
+	while (__HAL_TIM_GET_COUNTER (&htim4) < time);
+}
+
+void delay_3 (uint16_t time)
+{
+	__HAL_TIM_SET_COUNTER(&htim1, 0);
+	while (__HAL_TIM_GET_COUNTER (&htim1) < time);
+}
+
+
+void Average_Difference(){
+
+	 total[0] -= Difference_temp[0][index];
+	 total[1] -= Difference_temp[1][index];
+	 total[2] -= Difference_temp[2][index];
+
+
+	  Difference_temp[0][index] = Difference[0];
+	  Difference_temp[1][index] = Difference[1];
+	  Difference_temp[2][index] = Difference[2];
+
+	  total[0] +=  Difference_temp[0][index];
+	  total[1] +=  Difference_temp[1][index];
+	  total[2] +=  Difference_temp[2][index];
+
+	  index++;
+
+	  if(index >= 10){
+		  index = 0;
+	  }
+
+	  average [0] = total[0]/ 10;
+	  average [1] = total[1]/ 10;
+	  average [2] = total[2]/ 10;
+
+
+	  Distance[0] = average [0] * .034/2;
+	  Distance[1] = average [1] * .034/2;
+	  Distance[2] = average [2] * .034/2;
+}
+
+
+
 
 /* USER CODE END 4 */
 

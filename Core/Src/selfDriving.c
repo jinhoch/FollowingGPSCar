@@ -33,7 +33,12 @@ extern GPS_t GPS;
 extern _DestinationGPS waypointGPS;
 _DestinationGPS waypointBefore;
 
+extern uint16_t Distance[3];
+
+
 _Quadrant quadrant;
+
+
 
 //CONTROLLER_SIGNAL chkCWCCW(float target_angle, float car_angle) {
 //	if (car_angle < 180) {
@@ -120,5 +125,7 @@ void SelfDriving(){
 	  }
 
 	  Move(moveSignal);
+
+
 
 }
